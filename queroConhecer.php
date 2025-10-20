@@ -5,6 +5,9 @@
 header('Content-Type: application/json; charset=utf-8');
 date_default_timezone_set('America/Sao_Paulo');
 
+$mensagemErro       = 'Não foi possível registrar seu interesse';
+$mensagemSucesso    = 'Recebemos sua solicitação';
+
 // Caminho onde os dados serão salvos
 $dataDir = __DIR__ . '/dados';
 if (!is_dir($dataDir)) {
@@ -22,8 +25,11 @@ if (!$data) $data = $_POST;
 $requiredFields = ['name', 'email', 'phone', 'crm', 'specialty', 'location', 'message'];
 foreach ($requiredFields as $field) {
     if (empty($data[$field])) {
+        error_log("Campo obrigatório ausente: $field");
+
         http_response_code(400);
         echo json_encode(['resposta' => "Campo obrigatório ausente: $field", 'sucesso' => false]);
+
         exit;
     }
 }
@@ -35,7 +41,42 @@ $filename = $dataDir . '/' . date('Y-m-d\TH-i-s') . '-' . uniqid() . '.json';
 file_put_contents($filename, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 
 // ------------------------------------------------------------
-// 1️⃣ ENVIO DE EMAIL VIA GMAIL API (OAuth2)
+// 1️⃣ LÊ CONFIGURAÇÕES DO ARQUIVO config.json
+// ------------------------------------------------------------
+$configFile = __DIR__ . '/conf/queroConhecerConfig.json';
+if (!file_exists($configFile)) {
+    error_log("Arquivo de configuração não encontrado: $configFile");
+
+    http_response_code(500);
+    echo json_encode(['resposta' => $mensagemErro, 'sucesso' => false]);
+
+    exit;
+}
+
+$configData = json_decode(file_get_contents($configFile), true);
+if (
+    !$configData ||
+    empty($configData['gmailUser']) ||
+    empty($configData['clientId']) ||
+    empty($configData['clientSecret']) ||
+    empty($configData['refreshToken']) ||
+    empty($configData['to'])
+) {
+    error_log("Arquivo de configuração inválido ou incompleto: $configFile");
+
+    http_response_code(500);
+    echo json_encode(['resposta' => $mensagemErro, 'sucesso' => false]);
+    exit;
+}
+
+$gmailUser    = $configData['gmailUser'];
+$clientId     = $configData['clientId'];
+$clientSecret = $configData['clientSecret'];
+$refreshToken = $configData['refreshToken'];
+$to           = $configData['to'];
+
+// ------------------------------------------------------------
+// 2️⃣ ENVIO DE EMAIL VIA GMAIL API (OAuth2)
 // ------------------------------------------------------------
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
@@ -43,12 +84,6 @@ use PHPMailer\PHPMailer\OAuth;
 use League\OAuth2\Client\Provider\Google;
 
 require __DIR__ . '/vendor/autoload.php';
-
-// Credenciais do Gmail API (OAuth2)
-$gmailUser     = ''; // e-mail remetente (Workspace)
-$clientId      = '';
-$clientSecret  = '';
-$refreshToken  = '';
 
 // Montagem do e-mail
 $mail = new PHPMailer(true);
@@ -75,13 +110,17 @@ try {
     ]));
 
     // Cabeçalhos e destinatários
-    $mail->setFrom($gmailUser, 'Help Médico - Formulário de Interesse');
-    $mail->addAddress('admin@helpmedico.com.br', 'Equipe Help Médico');
+    $mail->setFrom($gmailUser, 'HelpMédico - Formulário queroConhecer.php');
+    $mail->addAddress($to, $to);
     $mail->addReplyTo($data['email'], $data['name']);
+
+    // 🔤 Define codificação correta para acentos
+    $mail->CharSet  = 'UTF-8';
+    $mail->Encoding = 'base64';
 
     // Corpo do e-mail
     $mail->isHTML(true);
-    $mail->Subject = 'Novo formulário - Quero Conhecer a Help Médico';
+    $mail->Subject = 'Quero pertencer: Novo Contato';
     $mail->Body    = "
         <h3>Nova solicitação recebida</h3>
         <p><b>Nome:</b> {$data['name']}</p>
@@ -91,8 +130,6 @@ try {
         <p><b>Especialidade:</b> {$data['specialty']}</p>
         <p><b>Localização:</b> {$data['location']}</p>
         <p><b>Mensagem:</b><br>{$data['message']}</p>
-        <hr>
-        <p>Arquivo salvo: {$filename}</p>
     ";
     $mail->AltBody = strip_tags($mail->Body);
 
@@ -103,86 +140,10 @@ try {
     error_log('Erro ao enviar e-mail: ' . $mail->ErrorInfo);
 }
 
-/*
-// ------------------------------------------------------------
-// 2️⃣ ABERTURA AUTOMÁTICA DE CHAMADO NO GLPI
-// ------------------------------------------------------------
-$glpiApiUrl = 'https://glpi.helpmedico.com.br/apirest.php';
-$glpiToken  = 'TOKEN_GLPI_AQUI';
-
-try {
-    // Inicia sessão GLPI
-    $ch = curl_init("$glpiApiUrl/initSession");
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER => [
-            "Authorization: user_token $glpiToken",
-            "Content-Type: application/json"
-        ]
-    ]);
-    $response = json_decode(curl_exec($ch), true);
-    curl_close($ch);
-
-    if (!empty($response['session_token'])) {
-        $sessionToken = $response['session_token'];
-
-        // Cria o chamado
-        $ticketData = [
-            'input' => [
-                'name'        => "Contato de {$data['name']}",
-                'content'     => "Nova solicitação via formulário Help Médico\n\n" .
-                                 "E-mail: {$data['email']}\n" .
-                                 "Telefone: {$data['phone']}\n" .
-                                 "CRM: {$data['crm']}\n" .
-                                 "Especialidade: {$data['specialty']}\n" .
-                                 "Localização: {$data['location']}\n\n" .
-                                 "Mensagem:\n{$data['message']}",
-                'status'      => 1, // Novo
-                'priority'    => 3, // Normal
-                'type'        => 1  // Incidente
-            ]
-        ];
-
-        $ch = curl_init("$glpiApiUrl/Ticket");
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($ticketData),
-            CURLOPT_HTTPHEADER => [
-                "Session-Token: $sessionToken",
-                "Content-Type: application/json"
-            ]
-        ]);
-        $ticketResponse = json_decode(curl_exec($ch), true);
-        curl_close($ch);
-
-        // Fecha sessão
-        $ch = curl_init("$glpiApiUrl/killSession");
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => ["Session-Token: $sessionToken"]
-        ]);
-        curl_exec($ch);
-        curl_close($ch);
-
-        $glpiStatus = isset($ticketResponse['id']);
-    } else {
-        $glpiStatus = false;
-    }
-} catch (Exception $e) {
-    $glpiStatus = false;
-    error_log('Erro GLPI: ' . $e->getMessage());
-}
-*/ 
-
 // ------------------------------------------------------------
 // RESPOSTA FINAL
 // ------------------------------------------------------------
 echo json_encode([
-    'resposta' => 'Solicitação enviada com sucesso',
-    'salvo_em' => basename($filename),
-    'email_enviado' => $emailStatus,
-//    'chamado_glpi' => $glpiStatus,
+    'resposta' => $mensagemSucesso,
     'sucesso' => true
 ]);
-

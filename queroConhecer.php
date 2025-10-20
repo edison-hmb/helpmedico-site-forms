@@ -22,7 +22,7 @@ $data = json_decode($input, true);
 if (!$data) $data = $_POST;
 
 // Validação básica
-$requiredFields = ['name', 'email', 'phone', 'crm', 'specialty', 'location', 'message'];
+$requiredFields = ['name', 'email', 'phone', 'crm', 'specialty', 'location'];
 foreach ($requiredFields as $field) {
     if (empty($data[$field])) {
         error_log("Campo obrigatório ausente: $field");

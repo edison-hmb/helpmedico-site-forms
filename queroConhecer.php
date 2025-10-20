@@ -135,6 +135,8 @@ try {
 
     $mail->send();
     $emailStatus = true;
+
+    trigger_error("Dados do Formulário enviado para $to", E_USER_WARNING);
 } catch (Exception $e) {
     $emailStatus = false;
     error_log('Erro ao enviar e-mail: ' . $mail->ErrorInfo);

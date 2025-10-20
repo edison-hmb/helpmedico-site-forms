@@ -120,7 +120,7 @@ try {
 
     // Corpo do e-mail
     $mail->isHTML(true);
-    $mail->Subject = 'Fale Conosco: Nova Mensagem';
+    $mail->Subject = "Fale Conosco: Nova Mensagem de $data['type']";
     $mail->Body    = "
         <h3>Nova mensagem recebida</h3>
         <p><b>Nome:</b> {$data['name']}</p>

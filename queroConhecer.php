@@ -120,7 +120,7 @@ try {
 
     // Corpo do e-mail
     $mail->isHTML(true);
-    $mail->Subject = 'Quero pertencer: Novo Contato';
+    $mail->Subject = 'Quero Pertencer: Novo Contato';
     $mail->Body    = "
         <h3>Nova solicitação recebida</h3>
         <p><b>Nome:</b> {$data['name']}</p>

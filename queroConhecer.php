@@ -60,7 +60,8 @@ if (
     empty($configData['clientId']) ||
     empty($configData['clientSecret']) ||
     empty($configData['refreshToken']) ||
-    empty($configData['to'])
+    empty($configData['to']) ||
+    empty($configData['token'])
 ) {
     error_log("Arquivo de configuração inválido ou incompleto: $configFile");
 
@@ -74,13 +75,14 @@ $clientId     = $configData['clientId'];
 $clientSecret = $configData['clientSecret'];
 $refreshToken = $configData['refreshToken'];
 $to           = $configData['to'];
+$token        = $configData['token'];
 
 try {
-    enviarQueroConhecer($data);
+    enviarQueroConhecer($data, $token);
     $ERPStatus = true;
 } catch (Exception $e) {
     $ERPStatus = false;
-    error_log('Erro ao tentar acionar API do ERP: ' . $e);
+    error_log('Erro ao tentar acionar API Quero Conheçer do ERP: ' . $e);
 }    
 
 // ------------------------------------------------------------
@@ -155,7 +157,7 @@ echo json_encode([
     'sucesso' => true
 ]);
 
-function enviarQueroConhecer($dados) {
+function enviarQueroConhecer($dados, $token) {
     $url = 'https://urpldjdpivljaxuibihw.supabase.co/functions/v1/want-to-know';
     
     $payload = json_encode([
@@ -171,7 +173,7 @@ function enviarQueroConhecer($dados) {
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_HTTPHEADER     => [
             'Content-Type: application/json',
-            'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVycGxkamRwaXZsamF4dWliaWh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA0Nzc4NzAsImV4cCI6MjA4NjA1Mzg3MH0.gyrJ83vYl8Q7m0QX-kQdNWPYRwvm4oPGvec5xQ_AgDk',
+            "Authorization: Bearer $token",
         ],
         CURLOPT_POSTFIELDS => $payload,
     ]);

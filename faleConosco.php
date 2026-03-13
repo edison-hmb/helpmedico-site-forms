@@ -60,7 +60,8 @@ if (
     empty($configData['clientId']) ||
     empty($configData['clientSecret']) ||
     empty($configData['refreshToken']) ||
-    empty($configData['to'])
+    empty($configData['to']) ||
+    empty($configData['token'])
 ) {
     error_log("Arquivo de configuração inválido ou incompleto: $configFile");
 
@@ -74,6 +75,15 @@ $clientId     = $configData['clientId'];
 $clientSecret = $configData['clientSecret'];
 $refreshToken = $configData['refreshToken'];
 $to           = $configData['to'];
+$token        = $configData['token'];
+
+try {
+    enviarFaleConosco($data, $token);
+    $ERPStatus = true;
+} catch (Exception $e) {
+    $ERPStatus = false;
+    error_log('Erro ao tentar acionar API FaleConosco do ERP: ' . $e);
+}
 
 // ------------------------------------------------------------
 // 2️⃣ ENVIO DE EMAIL VIA GMAIL API (OAuth2)
@@ -147,3 +157,32 @@ echo json_encode([
     'resposta' => $mensagemSucesso,
     'sucesso' => true
 ]);
+
+function enviarFaleConosco($dados, $token) {
+    $url = 'https://urpldjdpivljaxuibihw.supabase.co/functions/v1/contact-us';
+    
+    $payload = json_encode([
+        'full_name'    => $dados['name'],
+        'email'        => $dados['email'],
+        'phone'        => $dados['phone'],
+        'message_type' => $dados['type'],
+        'message'      => $dados['message']
+    ]);
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER     => [
+            'Content-Type: application/json',
+            "Authorization: Bearer $token",
+        ],
+        CURLOPT_POSTFIELDS => $payload,
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return ['status' => $httpCode, 'response' => json_decode($response, true)];
+}

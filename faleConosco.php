@@ -165,7 +165,7 @@ function enviarFaleConosco($dados, $token) {
         'full_name'    => $dados['name'],
         'email'        => $dados['email'],
         'phone'        => $dados['phone'],
-        'message_type' => strtolower($dados['type']),
+        'message_type' => iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', strtolower($dados['type'])),
         'message'      => $dados['message']
     ]);
 

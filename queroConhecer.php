@@ -22,7 +22,7 @@ $data = json_decode($input, true);
 if (!$data) $data = $_POST;
 
 // Validação básica
-$requiredFields = ['name', 'email', 'phone', 'crm', 'specialty', 'location'];
+$requiredFields = ['name', 'email', 'phone', 'referral'];
 foreach ($requiredFields as $field) {
     if (empty($data[$field])) {
         error_log("Campo obrigatório ausente: $field");
@@ -126,10 +126,7 @@ try {
         <p><b>Nome:</b> {$data['name']}</p>
         <p><b>Email:</b> {$data['email']}</p>
         <p><b>Telefone:</b> {$data['phone']}</p>
-        <p><b>CRM:</b> {$data['crm']}</p>
-        <p><b>Especialidade:</b> {$data['specialty']}</p>
-        <p><b>Localização:</b> {$data['location']}</p>
-        <p><b>Mensagem:</b><br>{$data['message']}</p>
+        <p><b>Indicado por:</b> {$data['referral']}</p>
     ";
     $mail->AltBody = strip_tags($mail->Body);
 

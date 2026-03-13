@@ -75,6 +75,14 @@ $clientSecret = $configData['clientSecret'];
 $refreshToken = $configData['refreshToken'];
 $to           = $configData['to'];
 
+try {
+    enviarQueroConhecer($data);
+    $ERPStatus = true;
+} catch (Exception $e) {
+    $ERPStatus = false;
+    error_log('Erro ao tentar acionar API do ERP: ' . $e);
+}    
+
 // ------------------------------------------------------------
 // 2️⃣ ENVIO DE EMAIL VIA GMAIL API (OAuth2)
 // ------------------------------------------------------------
@@ -146,3 +154,31 @@ echo json_encode([
     'resposta' => $mensagemSucesso,
     'sucesso' => true
 ]);
+
+function enviarQueroConhecer($dados) {
+    $url = 'https://urpldjdpivljaxuibihw.supabase.co/functions/v1/want-to-know';
+    
+    $payload = json_encode([
+        'full_name'   => $dados['name'],
+        'email'       => $dados['email'],
+        'phone'       => $dados['phone'],
+        'referred_by' => $dados['referral'] ?? '',
+    ]);
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER     => [
+            'Content-Type: application/json',
+            'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVycGxkamRwaXZsamF4dWliaWh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA0Nzc4NzAsImV4cCI6MjA4NjA1Mzg3MH0.gyrJ83vYl8Q7m0QX-kQdNWPYRwvm4oPGvec5xQ_AgDk',
+        ],
+        CURLOPT_POSTFIELDS => $payload,
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return ['status' => $httpCode, 'response' => json_decode($response, true)];
+}

@@ -161,10 +161,11 @@ function enviarQueroConhecer($dados, $token) {
     $url = 'https://urpldjdpivljaxuibihw.supabase.co/functions/v1/want-to-know';
     
     $payload = json_encode([
-        'full_name'   => $dados['name'],
-        'email'       => $dados['email'],
-        'phone'       => $dados['phone'],
-        'referred_by' => $dados['referral'] ?? '',
+        'full_name'     => $dados['name'],
+        'email'         => $dados['email'],
+        'phone'         => $dados['phone'],
+        'referred_by'   => $dados['referral'] ?? '',
+        'client_ip'     => getClientIP(),
     ]);
 
     $ch = curl_init($url);
@@ -189,4 +190,21 @@ function enviarQueroConhecer($dados, $token) {
     ));
 
     return ['status' => $httpCode, 'response' => json_decode($response, true)];
+}
+
+function getClientIP() {
+    if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+        return $_SERVER['HTTP_CF_CONNECTING_IP'];
+    }
+
+    if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
+        return trim($ips[0]);
+    }
+
+    if (!empty($_SERVER['HTTP_CLIENT_IP'])) {
+        return $_SERVER['HTTP_CLIENT_IP'];
+    }
+
+    return $_SERVER['REMOTE_ADDR'] ?? '';
 }

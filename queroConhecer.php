@@ -182,5 +182,11 @@ function enviarQueroConhecer($dados, $token) {
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
+    error_log(sprintf(
+        'INFO enviarQueroConhecer: status=%s response=%s',
+        $httpCode,
+        $response !== false ? $response : 'curl_exec retornou false'
+    ));
+
     return ['status' => $httpCode, 'response' => json_decode($response, true)];
 }

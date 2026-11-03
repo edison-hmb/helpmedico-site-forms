@@ -1,0 +1,19 @@
+{
+    "gmailUser": "admin@helpmedico.com.br",
+    "clientId": "<client id do Google>",
+    "clientSecret": "<client secret do Google>",
+    "refreshToken": "<refresh token do Gmail>",
+    "to": "eb@helpmedico.com.br",
+    "token": "<chave de acesso do ERP (Bearer)>",
+
+    "erpCrmField": "",
+    "allowedOrigins": [
+        "https://www.helpmedico.com.br",
+        "https://helpmedico.com.br",
+        "https://*.lovable.app",
+        "https://*.lovableproject.com"
+    ],
+    "dataDir": "",
+    "rateLimitMax": 5,
+    "rateLimitWindow": 600
+}

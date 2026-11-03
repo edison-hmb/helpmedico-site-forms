@@ -1,0 +1,12 @@
+# Protege tudo o que não é endpoint público dos formulários.
+# Só faleConosco.php e queroConhecer.php devem ser acessíveis pela web.
+Options -Indexes
+
+<IfModule mod_alias.c>
+    # Configurações (com segredos), backups, código interno, dependências e git
+    RedirectMatch 404 /(conf|dados|inc|vendor|\.git)(/|$)
+    # Arquivos de dados, de dependências e documentação
+    RedirectMatch 404 \.(json|lock|md|log|tgz|zip)$
+    # Versões antigas
+    RedirectMatch 404 /queroConhecerOld\.php$
+</IfModule>

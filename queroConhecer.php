@@ -1,210 +1,109 @@
 <?php
 // ------------------------------------------------------------
-// CABEÇALHO E CONFIGURAÇÃO INICIAL
+// FORMULÁRIO "QUERO CONHECER" (seção "Pronto para simplificar sua vida?" do site)
+// Recebe: name, crm, email, phone, referral
+// Envia ao ERP (want-to-know) e por e-mail; guarda backup em /dados
 // ------------------------------------------------------------
-header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/inc/formulario.php';
+
 date_default_timezone_set('America/Sao_Paulo');
 
-$mensagemErro       = 'Não foi possível registrar seu interesse';
-$mensagemSucesso    = 'Recebemos sua solicitação';
+$mensagemErro    = 'Não foi possível registrar seu interesse. Tente novamente ou fale com a gente pelo WhatsApp.';
+$mensagemSucesso = 'Recebemos sua solicitação';
 
-// Caminho onde os dados serão salvos
-$dataDir = __DIR__ . '/dados';
-if (!is_dir($dataDir)) {
-    mkdir($dataDir, 0755, true);
+$config = hm_carregar_config(__DIR__ . '/conf/queroConhecerConfig.json');
+hm_cors($config);
+
+// ------------------------------------------------------------
+// LEITURA E VALIDAÇÃO
+// ------------------------------------------------------------
+$entrada = hm_ler_dados();
+
+if (hm_eh_robo($entrada)) {
+    error_log('queroConhecer: envio descartado pelo campo-armadilha (robô)');
+    hm_responder(200, true, $mensagemSucesso);
+}
+
+[$dados, $erro] = hm_validar($entrada, [
+    //  campo        rótulo                       obrigatório  máx.  multilinha
+    'name'     => ['Nome completo',               true,        120,  false],
+    'crm'      => ['CRM',                         true,        20,   false],
+    'email'    => ['E-mail',                      true,        160,  false],
+    'phone'    => ['Telefone (WhatsApp)',         true,        30,   false],
+    'referral' => ['Quem indicou a Help Médico',  true,        120,  false],
+]);
+if ($erro !== null) {
+    hm_responder(400, false, $erro);
+}
+
+$ip    = hm_ip_cliente();
+$pasta = hm_pasta_dados($config);
+
+if (hm_excedeu_limite($pasta, 'queroConhecer', $ip, (int) ($config['rateLimitMax'] ?? 5), (int) ($config['rateLimitWindow'] ?? 600))) {
+    error_log("queroConhecer: limite de envios excedido para o IP $ip");
+    hm_responder(429, false, 'Recebemos muitos envios em pouco tempo. Aguarde alguns minutos e tente de novo.');
 }
 
 // ------------------------------------------------------------
-// LEITURA DOS DADOS ENVIADOS
+// BACKUP LOCAL (antes de qualquer envio)
 // ------------------------------------------------------------
-$input = file_get_contents('php://input');
-$data = json_decode($input, true);
-if (!$data) $data = $_POST;
+$registro = [
+    'formulario' => 'queroConhecer',
+    'recebidoEm' => date('c'),
+    'ip'         => $ip,
+    'dados'      => $dados,
+];
+$arquivoBackup = hm_salvar_backup($pasta, $registro);
 
-// Validação básica
-$requiredFields = ['name', 'email', 'phone', 'referral'];
-foreach ($requiredFields as $field) {
-    if (empty($data[$field])) {
-        error_log("Campo obrigatório ausente: $field");
-
-        http_response_code(400);
-        echo json_encode(['resposta' => "Campo obrigatório ausente: $field", 'sucesso' => false]);
-
-        exit;
-    }
+// ------------------------------------------------------------
+// 1️⃣ ENVIO AO ERP
+// ------------------------------------------------------------
+$payloadErp = [
+    'full_name'   => $dados['name'],
+    'email'       => $dados['email'],
+    'phone'       => $dados['phone'],
+    'referred_by' => $dados['referral'],
+    'client_ip'   => $ip,
+];
+// O CRM só vai ao ERP quando a configuração informa o nome do campo (ex.: "erpCrmField": "crm").
+if (!empty($config['erpCrmField'])) {
+    $payloadErp[$config['erpCrmField']] = $dados['crm'];
 }
+$erpOk = hm_enviar_erp($config, 'want-to-know', $payloadErp, 'enviarQueroConhecer');
 
 // ------------------------------------------------------------
-// SALVA LOCALMENTE (LOG DE BACKUP)
+// 2️⃣ E-MAIL DE AVISO
 // ------------------------------------------------------------
-$filename = $dataDir . '/' . date('Y-m-d\TH-i-s') . '-' . uniqid() . '.json';
-file_put_contents($filename, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-
-// ------------------------------------------------------------
-// 1️⃣ LÊ CONFIGURAÇÕES DO ARQUIVO config.json
-// ------------------------------------------------------------
-$configFile = __DIR__ . '/conf/queroConhecerConfig.json';
-if (!file_exists($configFile)) {
-    error_log("Arquivo de configuração não encontrado: $configFile");
-
-    http_response_code(500);
-    echo json_encode(['resposta' => $mensagemErro, 'sucesso' => false]);
-
-    exit;
-}
-
-$configData = json_decode(file_get_contents($configFile), true);
-if (
-    !$configData ||
-    empty($configData['gmailUser']) ||
-    empty($configData['clientId']) ||
-    empty($configData['clientSecret']) ||
-    empty($configData['refreshToken']) ||
-    empty($configData['to']) ||
-    empty($configData['token'])
-) {
-    error_log("Arquivo de configuração inválido ou incompleto: $configFile");
-
-    http_response_code(500);
-    echo json_encode(['resposta' => $mensagemErro, 'sucesso' => false]);
-    exit;
-}
-
-$gmailUser    = $configData['gmailUser'];
-$clientId     = $configData['clientId'];
-$clientSecret = $configData['clientSecret'];
-$refreshToken = $configData['refreshToken'];
-$to           = $configData['to'];
-$token        = $configData['token'];
-
-try {
-    enviarQueroConhecer($data, $token);
-    $ERPStatus = true;
-} catch (Exception $e) {
-    $ERPStatus = false;
-    error_log('Erro ao tentar acionar API Quero Conheçer do ERP: ' . $e);
-}    
-
-// ------------------------------------------------------------
-// 2️⃣ ENVIO DE EMAIL VIA GMAIL API (OAuth2)
-// ------------------------------------------------------------
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\Exception;
-use PHPMailer\PHPMailer\OAuth;
-use League\OAuth2\Client\Provider\Google;
-
-require __DIR__ . '/vendor/autoload.php';
-
-// Montagem do e-mail
-$mail = new PHPMailer(true);
-try {
-    $mail->isSMTP();
-    $mail->Host       = 'smtp.gmail.com';
-    $mail->Port       = 587;
-    $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-    $mail->SMTPAuth   = true;
-    $mail->AuthType   = 'XOAUTH2';
-
-    // Configura OAuth2
-    $provider = new Google([
-        'clientId'     => $clientId,
-        'clientSecret' => $clientSecret,
-    ]);
-
-    $mail->setOAuth(new OAuth([
-        'provider'       => $provider,
-        'clientId'       => $clientId,
-        'clientSecret'   => $clientSecret,
-        'refreshToken'   => $refreshToken,
-        'userName'       => $gmailUser,
-    ]));
-
-    // Cabeçalhos e destinatários
-    $mail->setFrom($gmailUser, 'HelpMédico - Formulário queroConhecer.php');
-    $mail->addAddress($to, $to);
-    $mail->addReplyTo($data['email'], $data['name']);
-
-    // 🔤 Define codificação correta para acentos
-    $mail->CharSet  = 'UTF-8';
-    $mail->Encoding = 'base64';
-
-    // Corpo do e-mail
-    $mail->isHTML(true);
-    $mail->Subject = 'Quero Pertencer: Novo Contato';
-    $mail->Body    = "
-        <h3>Nova solicitação recebida</h3>
-        <p><b>Nome:</b> {$data['name']}</p>
-        <p><b>Email:</b> {$data['email']}</p>
-        <p><b>Telefone:</b> {$data['phone']}</p>
-        <p><b>Indicado por:</b> {$data['referral']}</p>
-    ";
-    $mail->AltBody = strip_tags($mail->Body);
-
-    $mail->send();
-    $emailStatus = true;
-
-    trigger_error("Dados do Formulário enviado para $to", E_USER_WARNING);
-} catch (Exception $e) {
-    $emailStatus = false;
-    error_log('Erro ao enviar e-mail: ' . $mail->ErrorInfo);
-}
+$emailOk = hm_enviar_email(
+    $config,
+    'HelpMédico - Formulário Quero Conhecer',
+    'Quero Conhecer: ' . $dados['name'],
+    'Nova solicitação recebida',
+    [
+        'Nome'         => $dados['name'],
+        'CRM'          => $dados['crm'],
+        'E-mail'       => $dados['email'],
+        'Telefone'     => $dados['phone'],
+        'Indicado por' => $dados['referral'],
+        'Registrado no ERP' => $erpOk ? 'sim' : 'NÃO — cadastrar manualmente',
+    ],
+    '',
+    $dados['email'],
+    $dados['name']
+);
 
 // ------------------------------------------------------------
 // RESPOSTA FINAL
 // ------------------------------------------------------------
-echo json_encode([
-    'resposta' => $mensagemSucesso,
-    'sucesso' => true
-]);
-
-function enviarQueroConhecer($dados, $token) {
-    $url = 'https://urpldjdpivljaxuibihw.supabase.co/functions/v1/want-to-know';
-    
-    $payload = json_encode([
-        'full_name'     => $dados['name'],
-        'email'         => $dados['email'],
-        'phone'         => $dados['phone'],
-        'referred_by'   => $dados['referral'] ?? '',
-        'client_ip'     => getClientIP(),
-    ]);
-
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_POST           => true,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER     => [
-            'Content-Type: application/json',
-            "Authorization: Bearer $token",
-        ],
-        CURLOPT_POSTFIELDS => $payload,
-    ]);
-
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    error_log(sprintf(
-        'INFO enviarQueroConhecer: status=%s response=%s',
-        $httpCode,
-        $response !== false ? $response : 'curl_exec retornou false'
-    ));
-
-    return ['status' => $httpCode, 'response' => json_decode($response, true)];
+if ($arquivoBackup !== '') {
+    $registro['erp']   = $erpOk;
+    $registro['email'] = $emailOk;
+    hm_salvar_backup($pasta, $registro, $arquivoBackup);
 }
 
-function getClientIP() {
-    if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
-        return $_SERVER['HTTP_CF_CONNECTING_IP'];
-    }
-
-    if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-        $ips = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
-        return trim($ips[0]);
-    }
-
-    if (!empty($_SERVER['HTTP_CLIENT_IP'])) {
-        return $_SERVER['HTTP_CLIENT_IP'];
-    }
-
-    return $_SERVER['REMOTE_ADDR'] ?? '';
+if (!$erpOk && !$emailOk) {
+    error_log('ERRO queroConhecer: ERP e e-mail falharam' . ($arquivoBackup !== '' ? "; dados salvos em $arquivoBackup" : '; backup também falhou'));
+    hm_responder(500, false, $mensagemErro);
 }
+
+hm_responder(200, true, $mensagemSucesso);
